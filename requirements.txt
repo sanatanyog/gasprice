@@ -5,3 +5,4 @@ lxml
 numpy
 pandas
 matplotlib
+plotly
