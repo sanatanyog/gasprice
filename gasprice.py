@@ -32,30 +32,27 @@ def get_gas_data():
         petrol_head = [float(i) for i in petrol_price]
     return pd.DataFrame({'Country': cname, 'Price': petrol_head}), date, "USD/Liter"
 
-# Placeholder: Replace with actual scraping or API for diesel prices
 def get_diesel_data():
-    # Example: Simulate data
+    # Replace with actual data fetching if needed
     countries = ["USA", "Germany", "India", "China", "Brazil", "UK", "France", "Japan", "Australia", "Canada"]
     prices = [1.20, 1.80, 1.10, 1.00, 1.30, 1.90, 1.85, 1.75, 1.70, 1.60]
     date = "June 2025"
     return pd.DataFrame({'Country': countries, 'Price': prices}), date, "USD/Liter"
 
-# Placeholder: Replace with actual scraping or API for electricity prices
 def get_electricity_data():
     countries = ["USA", "Germany", "India", "China", "Brazil", "UK", "France", "Japan", "Australia", "Canada"]
     prices = [0.15, 0.32, 0.09, 0.08, 0.18, 0.28, 0.27, 0.25, 0.22, 0.20]
-    date = "Q2 2025"
+    date = "June 2025"
     return pd.DataFrame({'Country': countries, 'Price': prices}), date, "USD/kWh"
 
-# Placeholder: Replace with actual scraping or API for LPG prices
 def get_lpg_data():
     countries = ["USA", "Germany", "India", "China", "Brazil", "UK", "France", "Japan", "Australia", "Canada"]
     prices = [0.70, 1.10, 0.60, 0.65, 0.75, 1.15, 1.12, 1.05, 1.00, 0.95]
-    date = "June 2025"
+    date = "April 8, 2025"
     return pd.DataFrame({'Country': countries, 'Price': prices}), date, "USD/Liter"
 
 def main():
-    st.set_page_config(page_title="🌍 World Energy Price Analysis", layout="centered", page_icon=":fuelpump:")
+    st.set_page_config(page_title="⛽ World Energy Price Analysis", layout="centered", page_icon=":fuelpump:")
     st.markdown(
         f"<h1 style='color:{CXO_COLORS['primary']}; font-size: 2em;'>🌍 World Energy Price Analysis</h1>",
         unsafe_allow_html=True
@@ -77,9 +74,7 @@ def main():
         st.error("Unknown energy type selected.")
         return
 
-    # Analysis
-    price_col = "Price"
-    values = df[price_col].values
+    values = df['Price'].values
     mu = round(float(np.mean(values)), 3)
     sigma = round(float(np.std(values)), 3)
     o_std = sigma + mu
@@ -119,7 +114,7 @@ def main():
         }
         for country in countries:
             try:
-                value = float(df[df['Country'] == country][price_col].values[0])
+                value = float(df[df['Country'] == country]['Price'].values[0])
                 country_data[country] = value
                 if value < o_std and value > mu:
                     position_groups["close_to_68_1"].append(country)
@@ -134,18 +129,17 @@ def main():
             except Exception as e:
                 st.error(f'Error processing data for {country}: {str(e)}')
 
-        # Price comparison table
         st.subheader("Price Comparison")
         compare_df = df[df['Country'].isin(countries)].set_index("Country")
         styled = (
             compare_df.style
-            .format({price_col: "${:.2f}"})
+            .format({"Price": "${:.2f}"})
             .set_properties(**{
                 "background-color": "#F6F7FB",
                 "color": "#224088",
                 "font-size": "1.1em",
                 "font-weight": "bold"
-            }, subset=pd.IndexSlice[:, [price_col]])
+            }, subset=pd.IndexSlice[:, ["Price"]])
             .set_table_styles([
                 {"selector": "th", "props": [("font-size", "1.1em"), ("font-weight", "bold"), ("color", "#343752"), ("background", "#EEEDE9")]},
                 {"selector": "td", "props": [("border", "1px solid #EEEDE9")]},
@@ -210,9 +204,9 @@ def main():
                 st.info(f"**{', '.join(dist_groups['Within 1 Std Dev'])}** have prices within 1 standard deviation of the global mean.")
 
         elif plot_type == "Boxplot Analysis":
-            fig = px.box(df, y=price_col, points="all",
+            fig = px.box(df, y="Price", points="all",
                          title=f"Global {selected_energy} Price Distribution",
-                         labels={price_col: f"Price ({unit})"},
+                         labels={"Price": f"Price ({unit})"},
                          color_discrete_sequence=[CXO_COLORS["primary"]])
             color_cycle = px.colors.qualitative.Plotly
             for i, (country, value) in enumerate(country_data.items()):
@@ -231,9 +225,9 @@ def main():
             st.plotly_chart(fig, use_container_width=True)
             
             st.subheader("Detailed Analysis")
-            q1 = df[price_col].quantile(0.25)
-            median = df[price_col].median()
-            q3 = df[price_col].quantile(0.75)
+            q1 = df['Price'].quantile(0.25)
+            median = df['Price'].median()
+            q3 = df['Price'].quantile(0.75)
             iqr = q3 - q1
             lower_bound = q1 - 1.5 * iqr
             upper_bound = q3 + 1.5 * iqr
