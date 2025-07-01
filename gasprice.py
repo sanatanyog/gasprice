@@ -16,40 +16,34 @@ CXO_COLORS = {
     "text": "#343752"          # Dark Gray
 }
 
-def get_gas_data():
-    url = "https://www.globalpetrolprices.com/gasoline_prices/"
+def get_energy_data(energy_type):
+    url_map = {
+        "Gasoline prices": "https://www.globalpetrolprices.com/gasoline_prices/",
+        "Diesel": "https://www.globalpetrolprices.com/diesel_prices/",
+        "Electricity": "https://www.globalpetrolprices.com/electricity_prices/",
+        "LPG": "https://www.globalpetrolprices.com/lpg_prices/"
+    }
+    unit_map = {
+        "Gasoline prices": "USD/Liter",
+        "Diesel": "USD/Liter",
+        "Electricity": "USD/kWh",
+        "LPG": "USD/Liter"
+    }
+    url = url_map[energy_type]
     html = requests.get(url).text
     soup = BeautifulSoup(html, 'lxml')
     h1_text = soup.select('h1')[0].text.strip()
     date = h1_text.split(',')[-1].strip() if ',' in h1_text else h1_text
+
     country_div = soup.find_all('div', id='outsideLinks')
     for country in country_div:
         cname = country.div.text.split('\n\n')[1:-1]
         cname = [item.strip().replace("*", "") for item in cname]
-    petrol_value = soup.find_all('div', id='graphic')
-    for price in petrol_value:
-        petrol_price = price.div.text.split()[:-1]
-        petrol_head = [float(i) for i in petrol_price]
-    return pd.DataFrame({'Country': cname, 'Price': petrol_head}), date, "USD/Liter"
-
-def get_diesel_data():
-    # Replace with actual data fetching if needed
-    countries = ["USA", "Germany", "India", "China", "Brazil", "UK", "France", "Japan", "Australia", "Canada"]
-    prices = [1.20, 1.80, 1.10, 1.00, 1.30, 1.90, 1.85, 1.75, 1.70, 1.60]
-    date = "June 2025"
-    return pd.DataFrame({'Country': countries, 'Price': prices}), date, "USD/Liter"
-
-def get_electricity_data():
-    countries = ["USA", "Germany", "India", "China", "Brazil", "UK", "France", "Japan", "Australia", "Canada"]
-    prices = [0.15, 0.32, 0.09, 0.08, 0.18, 0.28, 0.27, 0.25, 0.22, 0.20]
-    date = "June 2025"
-    return pd.DataFrame({'Country': countries, 'Price': prices}), date, "USD/kWh"
-
-def get_lpg_data():
-    countries = ["USA", "Germany", "India", "China", "Brazil", "UK", "France", "Japan", "Australia", "Canada"]
-    prices = [0.70, 1.10, 0.60, 0.65, 0.75, 1.15, 1.12, 1.05, 1.00, 0.95]
-    date = "April 8, 2025"
-    return pd.DataFrame({'Country': countries, 'Price': prices}), date, "USD/Liter"
+    price_div = soup.find_all('div', id='graphic')
+    for price in price_div:
+        price_list = price.div.text.split()[:-1]
+        price_head = [float(i) for i in price_list]
+    return pd.DataFrame({'Country': cname, 'Price': price_head}), date, unit_map[energy_type]
 
 def main():
     st.set_page_config(page_title="⛽ World Energy Price Analysis", layout="centered", page_icon=":fuelpump:")
@@ -61,22 +55,10 @@ def main():
     energy_options = ["Gasoline prices", "Diesel", "Electricity", "LPG"]
     selected_energy = st.selectbox("Select energy type:", options=energy_options)
 
-    # Data selection logic
-    if selected_energy == "Gasoline prices":
-        df, date, unit = get_gas_data()
-    elif selected_energy == "Diesel":
-        df, date, unit = get_diesel_data()
-    elif selected_energy == "Electricity":
-        df, date, unit = get_electricity_data()
-    elif selected_energy == "LPG":
-        df, date, unit = get_lpg_data()
-    else:
-        st.error("Unknown energy type selected.")
-        return
-
-    values = df['Price'].values
-    mu = round(float(np.mean(values)), 3)
-    sigma = round(float(np.std(values)), 3)
+    df, date, unit = get_energy_data(selected_energy)
+    price_head = df['Price'].values
+    mu = round(float(np.mean(price_head)), 3)
+    sigma = round(float(np.std(price_head)), 3)
     o_std = sigma + mu
     nv_mu_80 = mu - sigma
     nv_mu_95 = mu - 2 * sigma
@@ -86,7 +68,7 @@ def main():
     col1.metric("🌐 Global Average", f"${mu} {unit}")
     col2.metric("σ (Std. Dev.)", f"{sigma}")
     col3.metric("Countries", f"{countries_count}")
-    st.caption(f"Data last updated: {date}")
+    st.caption(f"Data last updated: {date} | Source: GlobalPetrolPrices.com")
 
     st.header("🔎 Compare Countries")
     countries = st.multiselect(
@@ -112,6 +94,7 @@ def main():
             "less_than_95": [],
             "more_than_80": []
         }
+        
         for country in countries:
             try:
                 value = float(df[df['Country'] == country]['Price'].values[0])
@@ -128,7 +111,7 @@ def main():
                     position_groups["more_than_80"].append(country)
             except Exception as e:
                 st.error(f'Error processing data for {country}: {str(e)}')
-
+        
         st.subheader("Price Comparison")
         compare_df = df[df['Country'].isin(countries)].set_index("Country")
         styled = (
