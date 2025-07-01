@@ -27,11 +27,9 @@ def get_gas_data():
     url = "https://www.globalpetrolprices.com/gasoline_prices/"
     html = requests.get(url).text
     soup = BeautifulSoup(html, 'lxml')
-    # Extract and convert date to quarter label
     h1 = soup.select_one('h1').text
     date_str = h1.split(',')[-1].strip()
     quarter_label = get_quarter_label(date_str)
-    # Parse countries and prices
     names = soup.find('div', id='outsideLinks').div.text.split('\n\n')[1:-1]
     countries = [n.strip().replace("*", "") for n in names]
     prices = soup.find('div', id='graphic').div.text.split()[:-1]
@@ -71,8 +69,6 @@ def get_electricity_data():
     url = "https://www.globalpetrolprices.com/electricity_prices/"
     html = requests.get(url).text
     soup = BeautifulSoup(html, 'lxml')
-    
-    # Look for both <b> and <strong> tags containing "update"
     candidates = soup.find_all(['b', 'strong'])
     quarter_label = ""
     for tag in candidates:
@@ -80,22 +76,50 @@ def get_electricity_data():
         if "update" in text.lower():
             quarter_label = text
             break
-    
-    # Fallback: if still empty, try regex scan of the page
     if not quarter_label:
         import re
         match = re.search(r"(Q[1-4]\s*\d{4}\s*update)", html, re.IGNORECASE)
         if match:
             quarter_label = match.group(1)
-    
-    # Read the country-level table
     tables = pd.read_html(html)
     df_raw = tables[1]
     df_raw.columns = ["Country", "Residential", "Business"]
     df = df_raw[["Country", "Residential"]].rename(columns={"Residential": "Price"})
-    
     return df, quarter_label
 
+def get_natural_gas_data():
+    """
+    Scrape natural gas prices for households and the update label
+    from GlobalPetrolPrices.com.
+    Returns:
+      df (DataFrame): columns ['Country', 'Price']
+      update_label (str): e.g. "December 2024 update"
+    """
+    url = "https://www.globalpetrolprices.com/natural_gas_prices/"
+    html = requests.get(url).text
+    soup = BeautifulSoup(html, "lxml")
+
+    # Extract month & year update label
+    update_label = ""
+    for tag in soup.find_all(['b', 'strong']):
+        text = tag.get_text(strip=True)
+        # looking for something like "December 2024 price update"
+        if 'price update' in text.lower():
+            # remove trailing colon if present and isolate the "Month YYYY" part
+            label = text.split('price update')[0].strip(': ').title()
+            update_label = f"{label} update"
+            break
+
+    # Scrape country names
+    country_links = soup.select("#outsideLinks .graph_outside_link")
+    countries = [a.get_text(strip=True) for a in country_links]
+
+    # Scrape prices
+    raw_prices = soup.select_one("#graphic").div.get_text(" ", strip=True).split()
+    prices = [float(tok) for tok in raw_prices if tok.count('.') == 1 and tok.replace('.', '').isdigit()]
+
+    df = pd.DataFrame({"Country": countries, "Price": prices})
+    return df, update_label
 
 def main():
     st.set_page_config(page_title="⛽ Energy Price Analysis", layout="centered", page_icon=":fuelpump:")
@@ -109,7 +133,8 @@ def main():
         "Gasoline": get_gas_data,
         "Diesel": get_diesel_data,
         "LPG": get_lpg_data,
-        "Electricity": get_electricity_data
+        "Electricity": get_electricity_data,
+        "Natural Gas": get_natural_gas_data
     }
     energy = st.sidebar.selectbox("Select energy type:", list(data_funcs.keys()))
     
@@ -145,7 +170,9 @@ def main():
         styled = (
             comp_df.style
             .format({"Price": f"{mu:.2f}{unit}"})
-            .set_properties(**{"background-color": CXO_COLORS["secondary"], "color": CXO_COLORS["primary"], "font-weight":"bold"}, subset=["Price"])
+            .set_properties(**{"background-color": CXO_COLORS["secondary"], 
+                               "color": CXO_COLORS["primary"], 
+                               "font-weight":"bold"}, subset=["Price"])
             .set_caption(" ")
         )
         st.subheader("Price Comparison")
@@ -172,10 +199,12 @@ def main():
                          labels={"Price": f"Price ({unit})"},
                          color_discrete_sequence=[CXO_COLORS["primary"]])
             for i,(c,v) in enumerate(country_data.items()):
-                fig.add_hline(y=v, line_dash="dot", line_color=px.colors.qualitative.Plotly[i],
+                fig.add_hline(y=v, line_dash="dot", 
+                              line_color=px.colors.qualitative.Plotly[i],
                               annotation_text=f"{c} ({v}{unit})",
                               annotation_font_color=px.colors.qualitative.Plotly[i])
-            fig.update_layout(showlegend=False, plot_bgcolor="white", paper_bgcolor="white",
+            fig.update_layout(showlegend=False, plot_bgcolor="white", 
+                              paper_bgcolor="white",
                               font=dict(color=CXO_COLORS["text"]))
             st.plotly_chart(fig, use_container_width=True)
 
