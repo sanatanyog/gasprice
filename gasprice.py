@@ -1,9 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[2]:
-
-
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
@@ -36,29 +30,68 @@ def get_gas_data():
     for price in petrol_value:
         petrol_price = price.div.text.split()[:-1]
         petrol_head = [float(i) for i in petrol_price]
-    return pd.DataFrame({'Country': cname, 'Price': petrol_head}), date
+    return pd.DataFrame({'Country': cname, 'Price': petrol_head}), date, "USD/Liter"
+
+# Placeholder: Replace with actual scraping or API for diesel prices
+def get_diesel_data():
+    # Example: Simulate data
+    countries = ["USA", "Germany", "India", "China", "Brazil", "UK", "France", "Japan", "Australia", "Canada"]
+    prices = [1.20, 1.80, 1.10, 1.00, 1.30, 1.90, 1.85, 1.75, 1.70, 1.60]
+    date = "June 2025"
+    return pd.DataFrame({'Country': countries, 'Price': prices}), date, "USD/Liter"
+
+# Placeholder: Replace with actual scraping or API for electricity prices
+def get_electricity_data():
+    countries = ["USA", "Germany", "India", "China", "Brazil", "UK", "France", "Japan", "Australia", "Canada"]
+    prices = [0.15, 0.32, 0.09, 0.08, 0.18, 0.28, 0.27, 0.25, 0.22, 0.20]
+    date = "Q2 2025"
+    return pd.DataFrame({'Country': countries, 'Price': prices}), date, "USD/kWh"
+
+# Placeholder: Replace with actual scraping or API for LPG prices
+def get_lpg_data():
+    countries = ["USA", "Germany", "India", "China", "Brazil", "UK", "France", "Japan", "Australia", "Canada"]
+    prices = [0.70, 1.10, 0.60, 0.65, 0.75, 1.15, 1.12, 1.05, 1.00, 0.95]
+    date = "June 2025"
+    return pd.DataFrame({'Country': countries, 'Price': prices}), date, "USD/Liter"
 
 def main():
-    st.set_page_config(page_title="⛽ World Gas Price Analysis", layout="centered", page_icon=":fuelpump:")
+    st.set_page_config(page_title="🌍 World Energy Price Analysis", layout="centered", page_icon=":fuelpump:")
     st.markdown(
-        f"<h1 style='color:{CXO_COLORS['primary']}; font-size: 2em;'>🌍 World Gas Price Analysis</h1>",
+        f"<h1 style='color:{CXO_COLORS['primary']}; font-size: 2em;'>🌍 World Energy Price Analysis</h1>",
         unsafe_allow_html=True
     )
 
-    df, date = get_gas_data()
-    petrol_head = df['Price'].values
-    mu = round(float(np.mean(petrol_head)), 3)
-    sigma = round(float(np.std(petrol_head)), 3)
+    energy_options = ["Gasoline prices", "Diesel", "Electricity", "LPG"]
+    selected_energy = st.selectbox("Select energy type:", options=energy_options)
+
+    # Data selection logic
+    if selected_energy == "Gasoline prices":
+        df, date, unit = get_gas_data()
+    elif selected_energy == "Diesel":
+        df, date, unit = get_diesel_data()
+    elif selected_energy == "Electricity":
+        df, date, unit = get_electricity_data()
+    elif selected_energy == "LPG":
+        df, date, unit = get_lpg_data()
+    else:
+        st.error("Unknown energy type selected.")
+        return
+
+    # Analysis
+    price_col = "Price"
+    values = df[price_col].values
+    mu = round(float(np.mean(values)), 3)
+    sigma = round(float(np.std(values)), 3)
     o_std = sigma + mu
     nv_mu_80 = mu - sigma
     nv_mu_95 = mu - 2 * sigma
     countries_count = len(df)
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("🌐 Global Average", f"${mu}/L")
+    col1.metric("🌐 Global Average", f"${mu} {unit}")
     col2.metric("σ (Std. Dev.)", f"{sigma}")
     col3.metric("Countries", f"{countries_count}")
-    st.caption(f"Data last updated: {date} | Source: GlobalPetrolPrices.com")
+    st.caption(f"Data last updated: {date}")
 
     st.header("🔎 Compare Countries")
     countries = st.multiselect(
@@ -84,10 +117,9 @@ def main():
             "less_than_95": [],
             "more_than_80": []
         }
-        
         for country in countries:
             try:
-                value = float(df[df['Country'] == country]['Price'].values[0])
+                value = float(df[df['Country'] == country][price_col].values[0])
                 country_data[country] = value
                 if value < o_std and value > mu:
                     position_groups["close_to_68_1"].append(country)
@@ -101,19 +133,19 @@ def main():
                     position_groups["more_than_80"].append(country)
             except Exception as e:
                 st.error(f'Error processing data for {country}: {str(e)}')
-        
-        # --- CXO-presentable price comparison table ---
+
+        # Price comparison table
         st.subheader("Price Comparison")
         compare_df = df[df['Country'].isin(countries)].set_index("Country")
         styled = (
             compare_df.style
-            .format({"Price": "${:.2f}"})
+            .format({price_col: "${:.2f}"})
             .set_properties(**{
                 "background-color": "#F6F7FB",
                 "color": "#224088",
                 "font-size": "1.1em",
                 "font-weight": "bold"
-            }, subset=pd.IndexSlice[:, ["Price"]])
+            }, subset=pd.IndexSlice[:, [price_col]])
             .set_table_styles([
                 {"selector": "th", "props": [("font-size", "1.1em"), ("font-weight", "bold"), ("color", "#343752"), ("background", "#EEEDE9")]},
                 {"selector": "td", "props": [("border", "1px solid #EEEDE9")]},
@@ -122,7 +154,6 @@ def main():
             .set_caption(" ")
         )
         st.dataframe(styled, use_container_width=True)
-        # --- End CXO-presentable table ---
 
         st.subheader("Position Analysis")
         commentary = []
@@ -150,7 +181,6 @@ def main():
             color_cycle = plt.cm.tab10.colors
             for i, (country, value) in enumerate(country_data.items()):
                 ax.axvline(value, color=color_cycle[i % 10], linestyle='dashed', linewidth=2, label=f"{country} (${value})")
-            # Only show country lines in legend
             handles, labels = ax.get_legend_handles_labels()
             filtered = [(h, l) for h, l in zip(handles, labels) if any(c in l for c in countries)]
             if filtered:
@@ -158,12 +188,11 @@ def main():
                 ax.legend(handles, labels, fontsize=8)
             else:
                 ax.legend().remove()
-            ax.set_title(f"Global Price Distribution, Normal Curve & Selected Countries ({date})", fontsize=13, color=CXO_COLORS["primary"])
-            ax.set_xlabel("Price ($/liter)", fontsize=10)
+            ax.set_title(f"Global {selected_energy} Distribution, Normal Curve & Selected Countries ({date})", fontsize=13, color=CXO_COLORS["primary"])
+            ax.set_xlabel(f"Price ({unit})", fontsize=10)
             ax.set_ylabel("Density", fontsize=10)
             st.pyplot(fig)
 
-            # Grouped distribution commentary
             st.subheader("Distribution Analysis")
             dist_groups = {"Above 1 Std Dev": [], "Below 1 Std Dev": [], "Within 1 Std Dev": []}
             for country, value in country_data.items():
@@ -174,16 +203,16 @@ def main():
                 else:
                     dist_groups["Within 1 Std Dev"].append(country)
             if dist_groups["Above 1 Std Dev"]:
-                st.warning(f"**{', '.join(dist_groups['Above 1 Std Dev'])}** have prices more than 1 standard deviation above the global mean. This is relatively expensive compared to most countries, possibly due to high taxes, import dependency, or unique market factors.")
+                st.warning(f"**{', '.join(dist_groups['Above 1 Std Dev'])}** have prices more than 1 standard deviation above the global mean.")
             if dist_groups["Below 1 Std Dev"]:
-                st.warning(f"**{', '.join(dist_groups['Below 1 Std Dev'])}** have prices more than 1 standard deviation below the global mean. This is relatively cheap compared to most countries, possibly due to subsidies, local production, or favorable government policies.")
+                st.warning(f"**{', '.join(dist_groups['Below 1 Std Dev'])}** have prices more than 1 standard deviation below the global mean.")
             if dist_groups["Within 1 Std Dev"]:
-                st.info(f"**{', '.join(dist_groups['Within 1 Std Dev'])}** have prices within 1 standard deviation of the global mean. This is typical for the majority of countries.")
+                st.info(f"**{', '.join(dist_groups['Within 1 Std Dev'])}** have prices within 1 standard deviation of the global mean.")
 
         elif plot_type == "Boxplot Analysis":
-            fig = px.box(df, y="Price", points="all",
-                         title=f"Global Gas Price Distribution",
-                         labels={"Price": "Price per liter (USD)"},
+            fig = px.box(df, y=price_col, points="all",
+                         title=f"Global {selected_energy} Price Distribution",
+                         labels={price_col: f"Price ({unit})"},
                          color_discrete_sequence=[CXO_COLORS["primary"]])
             color_cycle = px.colors.qualitative.Plotly
             for i, (country, value) in enumerate(country_data.items()):
@@ -202,49 +231,45 @@ def main():
             st.plotly_chart(fig, use_container_width=True)
             
             st.subheader("Detailed Analysis")
-            q1 = df['Price'].quantile(0.25)
-            median = df['Price'].median()
-            q3 = df['Price'].quantile(0.75)
+            q1 = df[price_col].quantile(0.25)
+            median = df[price_col].median()
+            q3 = df[price_col].quantile(0.75)
             iqr = q3 - q1
             lower_bound = q1 - 1.5 * iqr
             upper_bound = q3 + 1.5 * iqr
 
-            # --- Clubbed commentary logic ---
             analysis_groups = {}
             for country, value in country_data.items():
-                # Quartile
                 if value < q1:
                     quartile = "Lowest Quartile (Q1)"
-                    quartile_desc = "- Below 25% of countries\n- Typical reasons: Local production, subsidies"
+                    quartile_desc = "- Below 25% of countries"
                     quartile_color = "info"
                 elif value < median:
                     quartile = "Second Quartile (Q2)"
-                    quartile_desc = "- Below 50% of countries\n- Typical reasons: Moderate taxes, stable supply"
+                    quartile_desc = "- Below 50% of countries"
                     quartile_color = "info"
                 elif value < q3:
                     quartile = "Third Quartile (Q3)"
-                    quartile_desc = "- Above 50% of countries\n- Typical reasons: Import dependency, transport costs"
+                    quartile_desc = "- Above 50% of countries"
                     quartile_color = "info"
                 else:
                     quartile = "Highest Quartile (Q4)"
-                    quartile_desc = "- Top 25% of countries\n- Typical reasons: High taxes, complex logistics"
+                    quartile_desc = "- Top 25% of countries"
                     quartile_color = "warning"
-                # Outlier
                 if value < lower_bound or value > upper_bound:
                     outlier = "Statistical Outlier"
                     outlier_color = "error"
                     if value > upper_bound:
-                        outlier_desc = f"- **Deviation:** ${value - upper_bound:.2f}/L above normal\n- Key factors: Taxes, dependency, constraints"
+                        outlier_desc = f"- **Deviation:** {value - upper_bound:.2f} {unit} above normal"
                     else:
-                        outlier_desc = f"- **Deviation:** ${lower_bound - value:.2f}/L below normal\n- Key factors: Subsidies, production, controls"
+                        outlier_desc = f"- **Deviation:** {lower_bound - value:.2f} {unit} below normal"
                 else:
                     outlier = "Within Normal Range"
                     outlier_color = "success"
-                    outlier_desc = "- Follows global distribution\n- Market-aligned pricing"
+                    outlier_desc = "- Follows global distribution"
                 key = (quartile, outlier, quartile_desc, outlier_desc, quartile_color, outlier_color)
                 analysis_groups.setdefault(key, []).append(country)
 
-            # Display grouped analysis
             for (quartile, outlier, quartile_desc, outlier_desc, quartile_color, outlier_color), countries_list in analysis_groups.items():
                 st.markdown(f"### {', '.join(countries_list)}")
                 col1, col2 = st.columns(2)
@@ -269,10 +294,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-# In[ ]:
-
-
-
-
