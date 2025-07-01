@@ -115,7 +115,7 @@ def main():
 
     st.header(f"🔎 Compare {energy} Prices")
     country = st.selectbox("Select your country:", [""] + sorted(df["Country"]))
-    plot_choice = st.selectbox("What would you like to see?", ["—","Distribution Analysis","Boxplot Analysis"])
+    plot_choice = st.selectbox("Select analysis type from dropdown (↓) ", ["—","Distribution Analysis","Boxplot Analysis"])
 
     if country and plot_choice != "—":
         value = float(df.loc[df["Country"]==country, "Price"])
@@ -136,7 +136,7 @@ def main():
             + " than the global average."
         )
         st.markdown(
-            f"- **Countries Paying Less:** Only **{below_count}** out of "
+            f"- **Countries Paying Less:**  **{below_count}** out of "
             f"{total_countries} countries pay less than {country}."
         )
         if value < lower or value > upper:
