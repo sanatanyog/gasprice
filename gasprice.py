@@ -69,6 +69,7 @@ def get_electricity_data():
     url = "https://www.globalpetrolprices.com/electricity_prices/"
     html = requests.get(url).text
     soup = BeautifulSoup(html, 'lxml')
+    # Extract "Qx YYYY update"
     candidates = soup.find_all(['b', 'strong'])
     quarter_label = ""
     for tag in candidates:
@@ -101,22 +102,29 @@ def get_natural_gas_data():
 
     # Extract month & year update label
     update_label = ""
-    for tag in soup.find_all(['b', 'strong']):
+    for tag in soup.find_all(['strong', 'b']):
         text = tag.get_text(strip=True)
-        # looking for something like "December 2024 price update"
         if 'price update' in text.lower():
-            # remove trailing colon if present and isolate the "Month YYYY" part
             label = text.split('price update')[0].strip(': ').title()
             update_label = f"{label} update"
             break
 
     # Scrape country names
     country_links = soup.select("#outsideLinks .graph_outside_link")
+    if not country_links:
+        country_links = soup.find('div', id='outsideLinks').find_all('a')
     countries = [a.get_text(strip=True) for a in country_links]
 
     # Scrape prices
-    raw_prices = soup.select_one("#graphic").div.get_text(" ", strip=True).split()
-    prices = [float(tok) for tok in raw_prices if tok.count('.') == 1 and tok.replace('.', '').isdigit()]
+    graphic_div = soup.find('div', id='graphic')
+    raw_prices = graphic_div.get_text(" ", strip=True).split()
+    prices = []
+    for tok in raw_prices:
+        try:
+            val = float(tok)
+            prices.append(val)
+        except ValueError:
+            continue
 
     df = pd.DataFrame({"Country": countries, "Price": prices})
     return df, update_label
@@ -147,7 +155,7 @@ def main():
     
     # Display metrics
     col1, col2, col3 = st.columns(3)
-    unit = "USD/kWh" if energy == "Electricity" else "USD/L"
+    unit = "USD/kWh" if energy in ["Electricity", "Natural Gas"] else "USD/L"
     col1.metric("🌐 Global Average", f"{mu}{unit}")
     col2.metric("σ (Std. Dev.)", f"{sigma}")
     col3.metric("Countries", f"{countries_count}")
