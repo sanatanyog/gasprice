@@ -13,7 +13,6 @@ CXO_COLORS = {
     "accent": "#BF9A4A",    # Gold
     "secondary": "#EEEDE9", # Silver
     "outlier": "#951233",   # Burgundy
-    "success": "#6BA368",   # Muted Green
     "text": "#343752"       # Dark Gray
 }
 
@@ -22,11 +21,12 @@ def get_quarter_label(date_str, fmt="%d-%b-%Y"):
     quarter = (dt.month - 1) // 3 + 1
     return f"Q{quarter} {dt.year} update"
 
-def get_data(url, is_electric=False, is_gas=False):
+def get_data(url, is_electric=False, is_natural_gas=False):
     html = requests.get(url).text
     soup = BeautifulSoup(html, "lxml")
+
     if is_electric:
-        # Electricity
+        # Electricity prices
         label = next((t.get_text(strip=True)
                      for t in soup.find_all(["b","strong"])
                      if "update" in t.text.lower()), "")
@@ -36,16 +36,16 @@ def get_data(url, is_electric=False, is_gas=False):
         df_raw = pd.read_html(html)[1]
         df_raw.columns = ["Country","Residential","Business"]
         df = df_raw[["Country","Residential"]].rename(columns={"Residential":"Price"})
-    elif is_gas:
-        # Natural Gas
+    elif is_natural_gas:
+        # Natural gas prices
         m = re.search(r"(\w+\s+\d{4})\s+price update", html, re.IGNORECASE)
         label = f"{m.group(1).title()} update" if m else ""
         links = soup.select("#outsideLinks .graph_outside_link") or soup.find(id="outsideLinks").find_all("a")
         countries = [a.get_text(strip=True) for a in links]
-        tokens = soup.find(id="graphic").get_text(" ",strip=True).split()
+        tokens = soup.find(id="graphic").get_text(" ", strip=True).split()
         nums = [tok for tok in tokens if tok.replace(".","",1).isdigit()]
         prices = [float(tok) for tok in nums[:len(countries)]]
-        df = pd.DataFrame({"Country":countries,"Price":prices})
+        df = pd.DataFrame({"Country": countries, "Price": prices})
     else:
         # Gasoline, Diesel, LPG
         h1 = soup.select_one("h1").text
@@ -54,7 +54,8 @@ def get_data(url, is_electric=False, is_gas=False):
         names = soup.find(id="outsideLinks").div.text.split("\n\n")[1:-1]
         countries = [n.strip().replace("*","") for n in names]
         prices = [float(p) for p in soup.find(id="graphic").div.text.split()[:-1]]
-        df = pd.DataFrame({"Country":countries,"Price":prices})
+        df = pd.DataFrame({"Country": countries, "Price": prices})
+
     return df, label
 
 def main():
@@ -63,20 +64,21 @@ def main():
                 unsafe_allow_html=True)
 
     sources = {
-        "Gasoline": ("https://www.globalpetrolprices.com/gasoline_prices/", False, False),
-        "Diesel":   ("https://www.globalpetrolprices.com/diesel_prices/", False, False),
-        "LPG":      ("https://www.globalpetrolprices.com/lpg_prices/", False, False),
-        "Electricity": ("https://www.globalpetrolprices.com/electricity_prices/", True, False),
-        "Natural Gas": ("https://www.globalpetrolprices.com/natural_gas_prices/", False, True)
+        "Gasoline":        ("https://www.globalpetrolprices.com/gasoline_prices/", False, False),
+        "Diesel":          ("https://www.globalpetrolprices.com/diesel_prices/", False, False),
+        "LPG":             ("https://www.globalpetrolprices.com/lpg_prices/", False, False),
+        "Electricity":     ("https://www.globalpetrolprices.com/electricity_prices/", True, False),
+        "Natural Gas":     ("https://www.globalpetrolprices.com/natural_gas_prices/", False, True)
     }
+
     energy = st.sidebar.selectbox("Select energy type:", list(sources.keys()))
-    url, is_elec, is_gas = sources[energy]
-    df, q_label = get_data(url, is_electric=is_elec, is_gas=is_gas)
+    url, is_elec, is_ng = sources[energy]
+    df, q_label = get_data(url, is_electric=is_elec, is_natural_gas=is_ng)
 
     prices = df["Price"].to_numpy()
-    mu, sigma = round(prices.mean(),3), round(prices.std(),3)
+    mu, sigma = round(prices.mean(), 3), round(prices.std(), 3)
     N = len(df)
-    unit = "USD/kWh" if energy in ["Electricity","Natural Gas"] else "USD/L"
+    unit = "USD/kWh" if energy in ["Electricity", "Natural Gas"] else "USD/L"
 
     # Global metrics
     c1, c2, c3 = st.columns(3)
@@ -90,77 +92,65 @@ def main():
     plot_choice = st.selectbox("Choose analysis:", ["—","Distribution","Boxplot"])
 
     if countries:
-        # Compute quartiles and outlier fences
-        q1, q3 = df["Price"].quantile([0.25,0.75])
+        # Compute fences
+        q1, q3 = df["Price"].quantile([0.25, 0.75])
         iqr = q3 - q1
         lo, hi = q1 - 1.5*iqr, q3 + 1.5*iqr
 
-        # ─────────────────────────────────────────────────────────────
-        # SUPER-SIMPLE, “JUST TELL ME” COMMENTARY FOR EACH COUNTRY
-        # ─────────────────────────────────────────────────────────────
+        # Layman commentary
         st.markdown("### 🗒️ Quick Takeaways")
         for ctr in countries:
             val = float(df.loc[df["Country"] == ctr, "Price"])
             pct = df["Price"].rank(pct=True)[df["Country"] == ctr].iloc[0] * 100
-            below = int(round(pct / 100 * N))
-            cheaper_or_expensive = "more" if val > mu else "less"
-            st.markdown(
-                f"**{ctr}** pays **{val}{unit}** for {energy.lower()} — that's **{cheaper_or_expensive}** "
-                f"than the world average of **{mu}{unit}**."
-            )
-            st.markdown(f"- **Countries paying less than {ctr}:** {below} out of {N}")
+            below = int(round(pct/100 * N))
+            comp = "more" if val > mu else "less"
+            st.markdown(f"**{ctr}** pays **{val}{unit}**, which is **{comp}** than the world average of **{mu}{unit}**.")
+            st.markdown(f"- **Countries paying less than {ctr}:** {below} of {N}")
             if val < lo or val > hi:
-                st.markdown(
-                    f"- **Is this unusual?** Yes — {ctr} sits outside the normal range "
-                    f"({lo:.3f}–{hi:.3f}{unit})."
-                )
+                st.markdown(f"- **Is this unusual?** Yes — {ctr} is outside the normal range ({lo:.3f}–{hi:.3f}{unit}).")
             else:
-                st.markdown(
-                    f"- **Is this unusual?** No — {ctr} is within the normal range "
-                    f"({lo:.3f}–{hi:.3f}{unit})."
-                )
+                st.markdown(f"- **Is this unusual?** No — {ctr} is within the normal range ({lo:.3f}–{hi:.3f}{unit}).")
             st.markdown("---")
 
-        # DISTRIBUTION PLOT
+        # Distribution plot
         if plot_choice == "Distribution":
             st.markdown("#### 📊 Price Distribution")
             sim = np.random.normal(mu, sigma, N)
             fig, ax = plt.subplots()
             ax.hist(sim, bins=30, density=True, alpha=0.6, color=CXO_COLORS["primary"])
             xs = np.linspace(sim.min(), sim.max(), 200)
-            ax.plot(xs,
-                    1/(sigma*np.sqrt(2*np.pi))*np.exp(-(xs-mu)**2/(2*sigma**2)),
+            ax.plot(xs, 1/(sigma*np.sqrt(2*np.pi)) * np.exp(-(xs-mu)**2/(2*sigma**2)),
                     color=CXO_COLORS["accent"], linewidth=2)
-            for idx, ctr in enumerate(countries):
+            for i, ctr in enumerate(countries):
                 v = float(df.loc[df["Country"] == ctr, "Price"])
-                ax.axvline(v, linestyle="--",
-                           color=plt.cm.tab10(idx),
+                ax.axvline(v, linestyle="--", color=plt.cm.tab10(i),
                            label=f"{ctr} ({v}{unit})")
             ax.set_title(f"{energy} Distribution ({q_label})", color=CXO_COLORS["primary"])
             ax.set_xlabel(f"Price ({unit})"); ax.set_ylabel("Density")
             ax.legend(fontsize=8)
             st.pyplot(fig)
 
-        # BOXPLOT
+        # Simplified boxplot with distinct colors
         if plot_choice == "Boxplot":
-            st.markdown("#### 📦 What the Boxplot Means (in plain words)")
+            st.markdown("#### 📦 Price Boxplot")
             st.markdown(
-                "- **Middle box**: where most countries’ prices sit.\n"
-                "- **Line in the box**: the middle of all prices.\n"
-                "- **Whiskers**: the usual low-to-high range.\n"
-                "- **Dots outside**: prices that really stick out."
+                "- The **box** shows where most prices sit (middle 50%).  \n"
+                "- The **line** inside is the middle price.  \n"
+                "- The **whiskers** show the normal range.  \n"
+                "- **Dots** beyond whiskers are unusual prices."
             )
-            fig2, ax2 = plt.subplots()
+            fig2, ax2 = plt.subplots(figsize=(6,2))
             ax2.boxplot(prices, vert=False,
-                        flierprops={'markerfacecolor':CXO_COLORS["outlier"],
-                                    'markeredgecolor':CXO_COLORS["outlier"]})
-            for idx, ctr in enumerate(countries):
+                        flierprops={'markerfacecolor': CXO_COLORS["outlier"],
+                                    'markeredgecolor': CXO_COLORS["outlier"]})
+            for i, ctr in enumerate(countries):
                 v = float(df.loc[df["Country"] == ctr, "Price"])
-                ax2.scatter(v, 1, color=CXO_COLORS["success"], zorder=3, label=ctr)
-            ax2.set_title(f"{energy} Boxplot ({q_label})", color=CXO_COLORS["primary"])
+                color = plt.cm.tab10(i)
+                ax2.scatter(v, 1, color=color, s=100, label=f"{ctr}: {v}{unit}", zorder=3)
+            ax2.set_title(f"{energy} Prices Boxplot ({q_label})", color=CXO_COLORS["primary"])
             ax2.set_xlabel(f"Price ({unit})")
             ax2.get_yaxis().set_visible(False)
-            ax2.legend(fontsize=8)
+            ax2.legend(loc="upper right", fontsize=8)
             st.pyplot(fig2)
 
 if __name__ == "__main__":
