@@ -115,7 +115,7 @@ def main():
     # Selection
     st.header(f"🔎 Compare {energy} Prices")
     country = st.selectbox("Select your country:", [""] + sorted(df["Country"]))
-    plot_choice = st.selectbox("What would you like to see?", ["—","Distribution Analysis","Boxplot Analysis"])
+    plot_choice = st.selectbox("Select analysis type ⬇️  ", ["—","Distribution Analysis","Boxplot Analysis"])
 
     if country and plot_choice != "—":
         value = float(df.loc[df["Country"]==country, "Price"])
