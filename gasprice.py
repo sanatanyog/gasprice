@@ -70,18 +70,32 @@ def get_lpg_data():
 def get_electricity_data():
     url = "https://www.globalpetrolprices.com/electricity_prices/"
     html = requests.get(url).text
-    # Quarter label is given explicitly
     soup = BeautifulSoup(html, 'lxml')
-    strongs = soup.find_all('strong')
-    quarter_label = next((s.text.strip() for s in strongs if 'update' in s.text.lower()), "")
+    
+    # Look for both <b> and <strong> tags containing "update"
+    candidates = soup.find_all(['b', 'strong'])
+    quarter_label = ""
+    for tag in candidates:
+        text = tag.get_text(strip=True)
+        if "update" in text.lower():
+            quarter_label = text
+            break
+    
+    # Fallback: if still empty, try regex scan of the page
+    if not quarter_label:
+        import re
+        match = re.search(r"(Q[1-4]\s*\d{4}\s*update)", html, re.IGNORECASE)
+        if match:
+            quarter_label = match.group(1)
+    
     # Read the country-level table
     tables = pd.read_html(html)
-    # The second table is the country list with 3 columns
     df_raw = tables[1]
     df_raw.columns = ["Country", "Residential", "Business"]
-    # Use residential rates for analysis
     df = df_raw[["Country", "Residential"]].rename(columns={"Residential": "Price"})
+    
     return df, quarter_label
+
 
 def main():
     st.set_page_config(page_title="⛽ Energy Price Analysis", layout="centered", page_icon=":fuelpump:")
