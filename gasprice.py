@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import plotly.express as px
+import re
 
 # Professional CXO Color Palette
 CXO_COLORS = {
@@ -32,8 +33,17 @@ def get_energy_data(energy_type):
     url = url_map[energy_type]
     html = requests.get(url).text
     soup = BeautifulSoup(html, 'lxml')
-    h1_text = soup.select('h1')[0].text.strip()
-    date = h1_text.split(',')[-1].strip() if ',' in h1_text else h1_text
+    
+    # SPECIAL HANDLING FOR ELECTRICITY DATE
+    if energy_type == "Electricity":
+        # Search for the Q2 update pattern in the page text
+        pattern = r'Q[1-4] \d{4} update'
+        matches = re.findall(pattern, soup.get_text())
+        date = matches[0] if matches else "Unknown date"
+    else:
+        # Standard date extraction for other energy types
+        h1_text = soup.select('h1')[0].text.strip()
+        date = h1_text.split(',')[-1].strip() if ',' in h1_text else h1_text
 
     country_div = soup.find_all('div', id='outsideLinks')
     for country in country_div:
