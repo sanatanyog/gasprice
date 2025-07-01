@@ -59,12 +59,12 @@ def get_electricity_data():
     url = "https://www.globalpetrolprices.com/electricity_prices/"
     html = requests.get(url).text
     soup = BeautifulSoup(html, 'lxml')
-    # find update label in <b> or <strong>
     q_label = ""
     for tag in soup.find_all(['b','strong']):
         t = tag.text.strip()
         if "update" in t.lower():
-            q_label = t; break
+            q_label = t
+            break
     if not q_label:
         m = re.search(r"(Q[1-4]\s*\d{4}\s*update)", html)
         q_label = m.group(1) if m else ""
@@ -77,7 +77,7 @@ def get_natural_gas_data():
     url = "https://www.globalpetrolprices.com/natural_gas_prices/"
     html = requests.get(url).text
     soup = BeautifulSoup(html, 'lxml')
-    m = re.search(r"(\w+\s+\d{4})\s+price update", html)
+    m = re.search(r"(\w+\s+\d{4})\s+price update", html, re.IGNORECASE)
     q_label = f"{m.group(1).title()} update" if m else ""
     links = soup.select("#outsideLinks .graph_outside_link") or soup.find('div',id='outsideLinks').find_all('a')
     countries = [a.text.strip() for a in links]
@@ -99,52 +99,66 @@ def main():
     }
     energy = st.sidebar.selectbox("Select energy type:", list(data_funcs.keys()))
     df, q_label = data_funcs[energy]()
+    
     prices = df["Price"].to_numpy()
     mu = round(prices.mean(), 3)
     sigma = round(prices.std(), 3)
     total_countries = len(df)
     unit = "USD/kWh" if energy in ["Electricity","Natural Gas"] else "USD/L"
 
-    # Metrics
-    c1,c2,c3 = st.columns(3)
+    # Display key metrics
+    c1, c2, c3 = st.columns(3)
     c1.metric("🌐 Global Average", f"{mu}{unit}")
     c2.metric("σ (Std. Dev.)", f"{sigma}")
     c3.metric("Countries", f"{total_countries}")
     st.caption(f"Data update: {q_label} | Source: GlobalPetrolPrices.com")
 
-    # Selection
     st.header(f"🔎 Compare {energy} Prices")
     country = st.selectbox("Select your country:", [""] + sorted(df["Country"]))
-    plot_choice = st.selectbox("Select analysis type ⬇️  ", ["—","Distribution Analysis","Boxplot Analysis"])
+    plot_choice = st.selectbox("What would you like to see?", ["—","Distribution Analysis","Boxplot Analysis"])
 
     if country and plot_choice != "—":
         value = float(df.loc[df["Country"]==country, "Price"])
-        # compute quartiles & IQR
         q1 = df["Price"].quantile(0.25)
         q3 = df["Price"].quantile(0.75)
         iqr = q3 - q1
         lower = q1 - 1.5*iqr
         upper = q3 + 1.5*iqr
-        pct = round(df["Price"].rank(pct=True)[df["Country"]==country].iloc[0]*100, 1)
+        pct = df["Price"].rank(pct=True)[df["Country"]==country].iloc[0] * 100
+        below_count = int(round((pct/100) * total_countries))
 
-        # HUMAN-FRIENDLY EXPLANATIONS
+        # Human-friendly commentary
         st.markdown("### 🗒️ Quick Takeaways")
-        st.markdown(f"- **Average vs Yours:** The world average is {mu}{unit}. {country} pays **{value}{unit}**, which is " +
-                    ("higher" if value>mu else "lower") + " than the global average.")
-        st.markdown(f"- **Percentile:** {country} is at the **{pct}th percentile**, meaning it pays more than {pct}% of countries.")
+        st.markdown(
+            f"- **Average vs Yours:** The world average is {mu}{unit}. "
+            f"{country} pays **{value}{unit}**, which is "
+            + ("higher" if value>mu else "lower")
+            + " than the global average."
+        )
+        st.markdown(
+            f"- **Countries Paying Less:** Only **{below_count}** out of "
+            f"{total_countries} countries pay less than {country}."
+        )
         if value < lower or value > upper:
-            st.markdown(f"- **Outlier?** Yes. Prices outside [{lower:.3f},{upper:.3f}]{unit} are unusual; {country} is flagged as an outlier.")
+            st.markdown(
+                f"- **Outlier?** Yes. Most countries pay between "
+                f"{lower:.3f}{unit} and {upper:.3f}{unit}; {country} is an outlier."
+            )
         else:
-            st.markdown(f"- **Outlier?** No. {country}'s price falls within the normal range of most countries.")
+            st.markdown(
+                f"- **Outlier?** No. {country}’s price is within the normal range "
+                f"({lower:.3f}–{upper:.3f}{unit})."
+            )
 
-        # DISTRIBUTION
+        # Distribution plot
         if plot_choice == "Distribution Analysis":
             st.markdown("#### 📊 Price Distribution")
             data_sim = np.random.normal(mu, sigma, len(prices))
             fig, ax = plt.subplots()
             ax.hist(data_sim, bins=30, density=True, alpha=0.6, color=CXO_COLORS["primary"])
             xs = np.linspace(min(data_sim), max(data_sim), 200)
-            ax.plot(xs, 1/(sigma*np.sqrt(2*np.pi)) * np.exp(-(xs-mu)**2/(2*sigma**2)),
+            ax.plot(xs,
+                    1/(sigma*np.sqrt(2*np.pi)) * np.exp(-(xs-mu)**2/(2*sigma**2)),
                     color=CXO_COLORS["accent"], linewidth=2)
             ax.axvline(value, color=CXO_COLORS["success"], linestyle="--",
                        label=f"{country}: {value}{unit}")
@@ -154,13 +168,14 @@ def main():
             ax.legend(fontsize=8)
             st.pyplot(fig)
 
-        # BOXPLOT
+        # Boxplot analysis
         if plot_choice == "Boxplot Analysis":
             st.markdown("#### 📦 Price Boxplot")
             st.markdown(f"- The box covers the middle 50% (from {q1}{unit} to {q3}{unit}).")
             st.markdown(f"- Whiskers extend to [{lower:.3f},{upper:.3f}]{unit}; points beyond are outliers.")
             fig2, ax2 = plt.subplots()
-            ax2.boxplot(prices, vert=False, flierprops={'markerfacecolor':CXO_COLORS["outlier"]})
+            ax2.boxplot(prices, vert=False,
+                        flierprops={'markerfacecolor':CXO_COLORS["outlier"], 'markeredgecolor':CXO_COLORS["outlier"]})
             ax2.scatter(value, 1, color=CXO_COLORS["success"], zorder=3, label=country)
             ax2.set_title(f"{energy} Boxplot ({q_label})", color=CXO_COLORS["primary"])
             ax2.set_xlabel(f"Price ({unit})")
