@@ -105,7 +105,7 @@ def main():
             below = int(round(pct/100 * N))
             comp = "more" if val > mu else "less"
             st.markdown(f"**{ctr}** pays **{val}{unit}**, which is **{comp}** than the world average of **{mu}{unit}**.")
-            st.markdown(f"- **Countries paying less than {ctr}:** {below} of total data available for  {N} countries for the selected energy type ")
+            st.markdown(f"- **{below}/{N} countries pay less than {ctr}**")
             if val < lo or val > hi:
                 st.markdown(f"- **Is this unusual?** Yes — {ctr} is outside the normal range ({lo:.3f}–{hi:.3f}{unit}).")
             else:
