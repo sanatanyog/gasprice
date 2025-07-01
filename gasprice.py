@@ -34,12 +34,12 @@ def get_energy_data(energy_type):
     html = requests.get(url).text
     soup = BeautifulSoup(html, 'lxml')
     
-    # SPECIAL HANDLING FOR ELECTRICITY DATE
+    # SPECIAL HANDLING FOR ELECTRICITY
     if energy_type == "Electricity":
-        # Search for the Q2 update pattern in the page text
-        pattern = r'Q[1-4] \d{4} update'
-        matches = re.findall(pattern, soup.get_text())
-        date = matches[0] if matches else "Unknown date"
+        # Extract quarter update from page content
+        content = soup.get_text()
+        quarter_match = re.search(r'Q[1-4] \d{4} update', content)
+        date = quarter_match.group(0) if quarter_match else "Latest Update"
     else:
         # Standard date extraction for other energy types
         h1_text = soup.select('h1')[0].text.strip()
@@ -193,7 +193,7 @@ def main():
                 st.warning(f"**{', '.join(dist_groups['Above 1 Std Dev'])}** have prices more than 1 standard deviation above the global mean.")
             if dist_groups["Below 1 Std Dev"]:
                 st.warning(f"**{', '.join(dist_groups['Below 1 Std Dev'])}** have prices more than 1 standard deviation below the global mean.")
-            if dist_groups["Within 1 Std Dev"]:
+            if dist_groups["Within 极 Dev"]:
                 st.info(f"**{', '.join(dist_groups['Within 1 Std Dev'])}** have prices within 1 standard deviation of the global mean.")
 
         elif plot_type == "Boxplot Analysis":
