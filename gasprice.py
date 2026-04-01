@@ -13,7 +13,7 @@ CXO_COLORS = {
     "accent": "#BF9A4A",    # Gold
     "secondary": "#EEEDE9", # Silver
     "outlier": "#951233",   # Burgundy
-    "text": "#343752"       # Dark Gray
+    "text": "#343752"        # Dark Gray
 }
 
 def get_quarter_label(date_str, fmt="%d-%b-%Y"):
@@ -56,6 +56,10 @@ def get_data(url, is_electric=False, is_natural_gas=False):
         prices = [float(p) for p in soup.find(id="graphic").div.text.split()[:-1]]
         df = pd.DataFrame({"Country": countries, "Price": prices})
 
+    # Ensure Price column is numeric for calculations
+    df["Price"] = pd.to_numeric(df["Price"], errors="coerce")
+    df = df.dropna(subset=["Price"])
+    
     return df, label
 
 def main():
@@ -100,7 +104,8 @@ def main():
         # Layman commentary
         st.markdown("### 🗒️ Quick Takeaways")
         for ctr in countries:
-            val = float(df.loc[df["Country"] == ctr, "Price"])
+            # FIX 1: .iloc[0] ensures we get a single number, not a Pandas Series
+            val = float(df.loc[df["Country"] == ctr, "Price"].iloc[0])
             pct = df["Price"].rank(pct=True)[df["Country"] == ctr].iloc[0] * 100
             below = int(round(pct/100 * N))
             comp = "more" if val > mu else "less"
@@ -122,7 +127,8 @@ def main():
             ax.plot(xs, 1/(sigma*np.sqrt(2*np.pi)) * np.exp(-(xs-mu)**2/(2*sigma**2)),
                     color=CXO_COLORS["accent"], linewidth=2)
             for i, ctr in enumerate(countries):
-                v = float(df.loc[df["Country"] == ctr, "Price"])
+                # FIX 2: .iloc[0] added here for the plot markers
+                v = float(df.loc[df["Country"] == ctr, "Price"].iloc[0])
                 ax.axvline(v, linestyle="--", color=plt.cm.tab10(i),
                            label=f"{ctr} ({v}{unit})")
             ax.set_title(f"{energy} Distribution ({q_label})", color=CXO_COLORS["primary"])
@@ -144,7 +150,8 @@ def main():
                         flierprops={'markerfacecolor': CXO_COLORS["outlier"],
                                     'markeredgecolor': CXO_COLORS["outlier"]})
             for i, ctr in enumerate(countries):
-                v = float(df.loc[df["Country"] == ctr, "Price"])
+                # FIX 3: .iloc[0] added here for the boxplot points
+                v = float(df.loc[df["Country"] == ctr, "Price"].iloc[0])
                 color = plt.cm.tab10(i)
                 ax2.scatter(v, 1, color=color, s=100, label=f"{ctr}: {v}{unit}", zorder=3)
             ax2.set_title(f"{energy} Prices Boxplot ({q_label})", color=CXO_COLORS["primary"])
