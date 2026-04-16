@@ -6,6 +6,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import datetime
 import re
+from io import StringIO  # <-- Fixes the Pandas 3.0 FileNotFoundError
 
 # Professional CXO Color Palette
 CXO_COLORS = {
@@ -13,54 +14,66 @@ CXO_COLORS = {
     "accent": "#BF9A4A",    # Gold
     "secondary": "#EEEDE9", # Silver
     "outlier": "#951233",   # Burgundy
-    "text": "#343752"        # Dark Gray
+    "text": "#343752"       # Dark Gray
 }
 
-def get_quarter_label(date_str, fmt="%d-%b-%Y"):
-    dt = datetime.datetime.strptime(date_str, fmt)
-    quarter = (dt.month - 1) // 3 + 1
-    return f"Q{quarter} {dt.year} update"
-
 def get_data(url, is_electric=False, is_natural_gas=False):
-    html = requests.get(url).text
-    soup = BeautifulSoup(html, "lxml")
+    try:
+        # Added a User-Agent header to prevent 403 Forbidden errors from the website
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        html = requests.get(url, headers=headers, timeout=10).text
+        soup = BeautifulSoup(html, "lxml")
 
-    if is_electric:
-        # Electricity prices
-        label = next((t.get_text(strip=True)
-                     for t in soup.find_all(["b","strong"])
-                     if "update" in t.text.lower()), "")
-        if not label:
-            m = re.search(r"(Q[1-4]\s*\d{4}\s*update)", html)
-            label = m.group(1) if m else ""
-        df_raw = pd.read_html(html)[1]
-        df_raw.columns = ["Country","Residential","Business"]
-        df = df_raw[["Country","Residential"]].rename(columns={"Residential":"Price"})
-    elif is_natural_gas:
-        # Natural gas prices
-        m = re.search(r"(\w+\s+\d{4})\s+price update", html, re.IGNORECASE)
-        label = f"{m.group(1).title()} update" if m else ""
-        links = soup.select("#outsideLinks .graph_outside_link") or soup.find(id="outsideLinks").find_all("a")
-        countries = [a.get_text(strip=True) for a in links]
-        tokens = soup.find(id="graphic").get_text(" ", strip=True).split()
-        nums = [tok for tok in tokens if tok.replace(".","",1).isdigit()]
-        prices = [float(tok) for tok in nums[:len(countries)]]
-        df = pd.DataFrame({"Country": countries, "Price": prices})
-    else:
-        # Gasoline, Diesel, LPG
-        h1 = soup.select_one("h1").text
-        date_str = h1.split(",")[-1].strip()
-        label = get_quarter_label(date_str)
-        names = soup.find(id="outsideLinks").div.text.split("\n\n")[1:-1]
-        countries = [n.strip().replace("*","") for n in names]
-        prices = [float(p) for p in soup.find(id="graphic").div.text.split()[:-1]]
-        df = pd.DataFrame({"Country": countries, "Price": prices})
+        if is_electric:
+            # Electricity prices
+            label = next((t.get_text(strip=True)
+                         for t in soup.find_all(["b","strong"])
+                         if "update" in t.text.lower()), "Update Unknown")
+            
+            # FIX: Wrap 'html' in StringIO to prevent Pandas 3.0 from crashing
+            tables = pd.read_html(StringIO(html))
+            if len(tables) > 1:
+                df_raw = tables[1]
+                df_raw.columns = ["Country","Residential","Business"]
+                df = df_raw[["Country","Residential"]].rename(columns={"Residential":"Price"})
+            else:
+                return pd.DataFrame(), "Could not find electricity table on page."
 
-    # Ensure Price column is numeric for calculations
-    df["Price"] = pd.to_numeric(df["Price"], errors="coerce")
-    df = df.dropna(subset=["Price"])
-    
-    return df, label
+        elif is_natural_gas:
+            # Natural gas prices
+            m = re.search(r"(\w+\s+\d{4})\s+price update", html, re.IGNORECASE)
+            label = f"{m.group(1).title()} update" if m else "Update Unknown"
+            links = soup.select("#outsideLinks .graph_outside_link") or soup.find(id="outsideLinks").find_all("a")
+            countries = [a.get_text(strip=True) for a in links]
+            tokens = soup.find(id="graphic").get_text(" ", strip=True).split()
+            nums = [tok for tok in tokens if tok.replace(".","",1).isdigit()]
+            prices = [float(tok) for tok in nums[:len(countries)]]
+            df = pd.DataFrame({"Country": countries, "Price": prices})
+
+        else:
+            # Gasoline, Diesel, LPG
+            h1 = soup.select_one("h1").text
+            date_str = h1.split(",")[-1].strip()
+            try:
+                dt = datetime.datetime.strptime(date_str, "%d-%b-%Y")
+                quarter = (dt.month - 1) // 3 + 1
+                label = f"Q{quarter} {dt.year} update"
+            except:
+                label = "Update Unknown"
+                
+            names = soup.find(id="outsideLinks").div.text.split("\n\n")[1:-1]
+            countries = [n.strip().replace("*","") for n in names]
+            prices = [float(p) for p in soup.find(id="graphic").div.text.split()[:-1]]
+            df = pd.DataFrame({"Country": countries, "Price": prices})
+
+        # Pre-emptive Clean: Ensure Price is numeric, drop missing, and drop duplicates
+        df["Price"] = pd.to_numeric(df["Price"], errors="coerce")
+        df = df.dropna(subset=["Price"]).drop_duplicates(subset=["Country"], keep="first")
+        
+        return df, label
+
+    except Exception as e:
+        return pd.DataFrame(), f"Error: {e}"
 
 def main():
     st.set_page_config(page_title="⛽ Energy Price Analysis", layout="centered", page_icon=":fuelpump:")
@@ -77,7 +90,15 @@ def main():
 
     energy = st.sidebar.selectbox("Select energy type:", list(sources.keys()))
     url, is_elec, is_ng = sources[energy]
-    df, q_label = get_data(url, is_electric=is_elec, is_natural_gas=is_ng)
+    
+    # Add a loading spinner while fetching
+    with st.spinner(f"Fetching latest {energy} data..."):
+        df, q_label = get_data(url, is_electric=is_elec, is_natural_gas=is_ng)
+
+    # Safe exit if data failed to load
+    if df is None or df.empty:
+        st.error(f"Something went wrong while scraping the data: {q_label}")
+        st.stop()
 
     prices = df["Price"].to_numpy()
     mu, sigma = round(prices.mean(), 3), round(prices.std(), 3)
@@ -104,7 +125,7 @@ def main():
         # Layman commentary
         st.markdown("### 🗒️ Quick Takeaways")
         for ctr in countries:
-            # FIX 1: .iloc[0] ensures we get a single number, not a Pandas Series
+            # FIX: .iloc[0] ensures we get a single number
             val = float(df.loc[df["Country"] == ctr, "Price"].iloc[0])
             pct = df["Price"].rank(pct=True)[df["Country"] == ctr].iloc[0] * 100
             below = int(round(pct/100 * N))
@@ -127,7 +148,7 @@ def main():
             ax.plot(xs, 1/(sigma*np.sqrt(2*np.pi)) * np.exp(-(xs-mu)**2/(2*sigma**2)),
                     color=CXO_COLORS["accent"], linewidth=2)
             for i, ctr in enumerate(countries):
-                # FIX 2: .iloc[0] added here for the plot markers
+                # FIX: .iloc[0] here as well
                 v = float(df.loc[df["Country"] == ctr, "Price"].iloc[0])
                 ax.axvline(v, linestyle="--", color=plt.cm.tab10(i),
                            label=f"{ctr} ({v}{unit})")
@@ -150,7 +171,7 @@ def main():
                         flierprops={'markerfacecolor': CXO_COLORS["outlier"],
                                     'markeredgecolor': CXO_COLORS["outlier"]})
             for i, ctr in enumerate(countries):
-                # FIX 3: .iloc[0] added here for the boxplot points
+                # FIX: .iloc[0] here as well
                 v = float(df.loc[df["Country"] == ctr, "Price"].iloc[0])
                 color = plt.cm.tab10(i)
                 ax2.scatter(v, 1, color=color, s=100, label=f"{ctr}: {v}{unit}", zorder=3)
